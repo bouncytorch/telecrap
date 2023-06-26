@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Telegraf, Scenes, session } = require('telegraf'), firebase = require('firebase-admin'), bcrypt = require('bcrypt'),
+const { Telegraf, Scenes, Markup, session } = require('telegraf'), firebase = require('firebase-admin'), bcrypt = require('bcrypt'),
 	cert = require('./cert.json'),
 	base = firebase.initializeApp({
 		credential: firebase.credential.cert(cert),
@@ -14,7 +14,11 @@ const Start = new Scenes.WizardScene(
 more info at https://bouncytorch\\.xyz/
 this bot is a substitute for a login system\\. the app will generate you a random avatar
 
-_custom images humbly provided by https://thispersondoesnotexist\\.com/_`);
+_custom images humbly provided by https://thispersondoesnotexist\\.com/_`, Markup
+				.keyboard([
+					['/start', '/stop'],
+				])
+				.resize());
 			ctx.replyWithMarkdownV2(`To start, type out your email here: 
 
 _E\\-mail addresses are not used for advertisement purposes or shared with third parties\\._`);
@@ -40,10 +44,8 @@ _E\\-mail addresses are not used for advertisement purposes or shared with third
 	EmailCheck = new Scenes.WizardScene(
 		'EmailCheck',
 		(ctx) => {
-			db.ref('users').on('value', (snapshot) => {
-				console.log(snapshot.val());
-				if (snapshot.val() == null || typeof snapshot.val() == 'string' || !(ctx.wizard.state.data.email in snapshot.val())) {
-					snapshot.ref.set({});
+			db.ref('users').once('value', (snapshot) => {
+				if (!Object.values(snapshot.val()).find((el) => el.email == ctx.wizard.state.data.email)) {
 					ctx.replyWithMarkdownV2(`You are creating a new account\\.
 			
 Enter your password: `);
@@ -80,10 +82,13 @@ Try again:`);
 
 Try again:`);
 			ctx.wizard.state.data.password = bcrypt.hashSync(ctx.message.text, bcrypt.genSaltSync(12));
-			db.ref('users').on('value', (snapshot) => {
+			db.ref('users').once('value', (snapshot) => {
 				snapshot.ref.set({
 					...snapshot.val(),
-					[ctx.wizard.state.data.email]: ctx.wizard.state.data.password
+					[require('uuid').v4()] : {
+						email: ctx.wizard.state.data.email,
+						password: ctx.wizard.state.data.password
+					},
 				}).then(() => ctx.scene.enter('Image', ctx.wizard.state));
 			}, (errorObject) => {
 				console.log('The read failed: ' + errorObject.name);
@@ -95,8 +100,8 @@ Try again:`);
 	Password = new Scenes.WizardScene(
 		'Password',
 		(ctx) => {
-			db.ref('users').on('value', (snapshot) => {
-				if (!('text' in ctx.message) || ctx.message.text < 8 || bcrypt.compareSync(ctx.message.text, snapshot.val()[ctx.wizard.state.data.email])) return ctx.replyWithMarkdownV2(`Invalid password\\.
+			db.ref('users').once('value', (snapshot) => {
+				if (!('text' in ctx.message) || ctx.message.text < 8 || !bcrypt.compareSync(ctx.message.text, Object.values(snapshot.val()).find((el) => el.email == ctx.wizard.state.data.email).password)) return ctx.replyWithMarkdownV2(`Invalid password\\.
 
 Try again:`);
 				return ctx.scene.enter('Image', ctx.wizard.state);
@@ -118,6 +123,6 @@ Try again:`);
 app.use(session({ store: sesStore }));
 app.use((new Scenes.Stage([Start, EmailCheck, PasswordNew, Password, Image])).middleware());
 app.start((ctx) => ctx.scene.enter('Start'));
-app.command('stop', (ctx) => { ctx.session = null; return ctx.leaveChat(); });
+app.command('stop', (ctx) => { ctx.session = null; return ctx.reply('Successfully logged out. Thanks for checking this out!'); });
 
 app.launch();
